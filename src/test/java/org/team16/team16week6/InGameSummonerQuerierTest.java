@@ -17,7 +17,8 @@ public class InGameSummonerQuerierTest {
     public void setup() {
         final String apiKey = "8242f154-342d-4b86-9642-dfa78cdb9d9c";
         GameParticipantListener dontCareListener = mock(GameParticipantListener.class);
-
+        InGameInfo gameInfo = mock(InGameInfo.class);
+        
         querier = new InGameSummonerQuerier(apiKey, dontCareListener);
     }
 
