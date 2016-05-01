@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -25,7 +26,8 @@ import java.util.HashMap;
 public class InGameSummonerQuerier {
     private final String apiKey;
     private final GameParticipantListener listener;
-
+    private InGameInfo gameInfo;
+    
     public InGameSummonerQuerier(String apiKey, GameParticipantListener listener) {
         this.apiKey = apiKey;
         this.listener = listener;
@@ -34,24 +36,66 @@ public class InGameSummonerQuerier {
     public String queryGameKey(String summonerName) throws IOException {
         HttpClient client = HttpClientBuilder.create().build();
 
-        HttpUriRequest summonerRequest = buildApiHttpRequest(summonerName);
-        HttpResponse summonerResponse = client.execute(summonerRequest);
-        Gson summonerInfoGson = new Gson();
-        Type mapType = new TypeToken<HashMap<String, SummonerInfo>>(){}.getType();
-        HashMap<String, SummonerInfo> entries = summonerInfoGson.fromJson(new JsonReader(new InputStreamReader(summonerResponse.getEntity().getContent())), mapType);
+        HttpResponse summonerResponse = getSummonerResponseFromHttpClientByGivenSummonerName(summonerName, client);
+        HashMap<String, SummonerInfo> entries = setEntriesOfSummonerInfoFromHttpResponse(summonerResponse);
         String summonerId = entries.get(summonerName).getId();
 
-        HttpUriRequest inGameRequest = buildObserverHttpRequest(summonerId);
-        HttpResponse inGameResponse = client.execute(inGameRequest);
-        Gson inGameGson = new Gson();
-        InGameInfo gameInfo = inGameGson.fromJson(new JsonReader(new InputStreamReader(inGameResponse.getEntity().getContent())), InGameInfo.class);
+        HttpResponse inGameResponse = getInGameResponseFromHttpClientByGivenSummonerId(client, summonerId);
+        gameInfo = setInGameInfoFromHttpResponse(inGameResponse);
 
-        Arrays.asList(gameInfo.getParticipants()).forEach((InGameInfo.Participant participant) -> {
+        updateParticipantsFromGameInfo(gameInfo);
+
+        return getEncryptionKeyFromGameInfo();
+    }
+
+	protected String getEncryptionKeyFromGameInfo() {
+		if(gameInfo == null)
+			return null;
+		
+		return gameInfo.getObservers().getEncryptionKey();
+	}
+
+    public int getParticipantsCount()
+    {
+    	if(gameInfo == null)
+    		return -1;
+    	else
+    		return gameInfo.getParticipants().length;
+    }
+    
+	protected void updateParticipantsFromGameInfo(InGameInfo gameInfo) {
+		Arrays.asList(gameInfo.getParticipants()).forEach((InGameInfo.Participant participant) -> {
             listener.player(participant.getSummonerName());
         });
+	}
 
-        return gameInfo.getObservers().getEncryptionKey();
-    }
+	protected InGameInfo setInGameInfoFromHttpResponse(HttpResponse inGameResponse) throws IOException {
+		Gson inGameGson = new Gson();
+        InGameInfo gameInfo = inGameGson.fromJson(new JsonReader(new InputStreamReader(inGameResponse.getEntity().getContent())), InGameInfo.class);
+		return gameInfo;
+	}
+
+	protected HashMap<String, SummonerInfo> setEntriesOfSummonerInfoFromHttpResponse(HttpResponse summonerResponse)
+			throws IOException {
+		Gson summonerInfoGson = new Gson();
+        Type mapType = new TypeToken<HashMap<String, SummonerInfo>>(){}.getType();
+        HashMap<String, SummonerInfo> entries = summonerInfoGson.fromJson(new JsonReader(new InputStreamReader(summonerResponse.getEntity().getContent())), mapType);
+		return entries;
+	}
+
+	protected HttpResponse getInGameResponseFromHttpClientByGivenSummonerId(HttpClient client, String summonerId)
+			throws IOException, ClientProtocolException {
+		HttpUriRequest inGameRequest = buildObserverHttpRequest(summonerId);
+        HttpResponse inGameResponse = client.execute(inGameRequest);
+		return inGameResponse;
+	}
+
+	protected HttpResponse getSummonerResponseFromHttpClientByGivenSummonerName(String summonerName, HttpClient client)
+			throws UnsupportedEncodingException, IOException, ClientProtocolException {
+		HttpUriRequest summonerRequest = buildApiHttpRequest(summonerName);
+        HttpResponse summonerResponse = client.execute(summonerRequest);
+		return summonerResponse;
+	}
 
     private HttpUriRequest buildApiHttpRequest(String summonerName) throws UnsupportedEncodingException {
         String url = mergeWithApiKey(new StringBuilder()
